@@ -8,7 +8,7 @@
  *
  *   IsoSpec is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  *
  *   You should have received a copy of the Simplified BSD Licence
  *   along with IsoSpec.  If not, see <https://opensource.org/licenses/BSD-2-Clause>.
@@ -91,12 +91,19 @@ class IsoSpecLayered;
      std::tuple<double*,double*,int*,int> getProduct();
 
      #ifdef BUILDING_R
-     friend List Rinterface(
-         IntegerVector isotopeNumbers,
-         IntegerVector atomCounts,
-         NumericVector isotopeMasses,
-         NumericVector isotopeProbabilities,
-         double stopCondition, int algo, int tabSize, int hashSize, double step);
+    // An R friend should be considered the worst enemy.
+    //                              Sun Tzu.
+    friend  NumericMatrix Rinterface(
+         	const IntegerVector&  molecule,
+         	const DataFrame&      isotopes,
+         	double  stopCondition,
+         	int		algo,
+         	int 	tabSize,
+         	int		hashSize,
+         	double 	step,
+         	bool 	showCounts,
+            bool    trim
+        );
      #endif
 
      friend class Spectrum;
@@ -134,6 +141,7 @@ class IsoSpecLayered;
      double                      lprobThr;
      double                      percentageToExpand;
      bool                        estimateThresholds;
+     bool                        do_trim;
      int layers;
 #ifdef DEBUG
      int moves = 0;
@@ -151,7 +159,8 @@ class IsoSpecLayered;
          int             tabSize = 1000,
          int             hashSize = 1000,
          double          layerStep = 0.3,
-	     bool            _estimateThresholds = false
+         bool            _estimateThresholds = false,
+	 bool            trim = true
      );
 
      virtual ~IsoSpecLayered();

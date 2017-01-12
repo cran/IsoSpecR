@@ -8,7 +8,7 @@
  *
  *   IsoSpec is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  *
  *   You should have received a copy of the Simplified BSD Licence
  *   along with IsoSpec.  If not, see <https://opensource.org/licenses/BSD-2-Clause>.
@@ -66,7 +66,8 @@ void* setupIsoLayered( int             _dimNumber,
                        int             tabSize,
                        int             hashSize,
                        double          step,
-                       bool            estimate
+                       bool            estimate,
+                       bool            trim
 );
 
 void* setupIsoOrdered( int             _dimNumber,
@@ -99,7 +100,8 @@ void* setupIso( int             _dimNumber,
                 int             algo,
                 int             tabSize,
                 int             hashSize,
-                double          step
+                double          step,
+                bool            trim
 );
 
 void* IsoFromFormula(const char* formula, double cutoff, int tabSize, int hashSize);
@@ -111,28 +113,6 @@ int getIsoConfNo(void* iso);
 void getIsoConfs(void* iso, double* res_mass, double* res_logProb, int* res_isoCounts);
 
 void destroyIso(void* iso);
-
-
-void SetupIsoR(
-    void**          iso,
-    int*            _dimNumber,
-    const int*      _isotopeNumbers,
-    const int*      _atomCounts,
-    const double*   _isotopeMasses,
-    const double*   _isotopeProbabilities,
-    const double*   _cutOff,
-    int*            tabSize,
-    int*            hashSize
-);
-
-
-
-void getIsoConfNoR(void** iso, int* number);
-
-void getIsoConfsR(void** iso, double* res_mass, double* res_logProb, int* res_isoCounts);
-
-void destroyIsoR(void** iso);
-
 
 #ifdef __cplusplus
 }
