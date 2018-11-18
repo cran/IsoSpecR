@@ -7,7 +7,7 @@ using namespace Rcpp;
 
 // Rinterface
 NumericMatrix Rinterface(const IntegerVector& molecule, const DataFrame& isotopes, double stopCondition, int algo, int tabSize, int hashSize, double step, bool showCounts, bool trim);
-RcppExport SEXP IsoSpecR_Rinterface(SEXP moleculeSEXP, SEXP isotopesSEXP, SEXP stopConditionSEXP, SEXP algoSEXP, SEXP tabSizeSEXP, SEXP hashSizeSEXP, SEXP stepSEXP, SEXP showCountsSEXP, SEXP trimSEXP) {
+RcppExport SEXP _IsoSpecR_Rinterface(SEXP moleculeSEXP, SEXP isotopesSEXP, SEXP stopConditionSEXP, SEXP algoSEXP, SEXP tabSizeSEXP, SEXP hashSizeSEXP, SEXP stepSEXP, SEXP showCountsSEXP, SEXP trimSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;

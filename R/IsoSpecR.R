@@ -1,5 +1,5 @@
 #
-#   Copyright (C) 2015-2016 Mateusz Łącki and Michał Startek.
+#   Copyright (C) 2015-2018 Mateusz Łącki and Michał Startek.
 #
 #   This file is part of IsoSpec.
 #
@@ -23,9 +23,6 @@ NULL
   library.dynam.unload("IsoSpecR", libpath)
 }
 
-
-
-
 #' Calculate the isotopic fine structure peaks.
 #'
 #' \code{IsoSpecify} is a wrapper around \code{Rinterface} that calls the C++ implementation of the IsoSpec algorithm. Given a molecular formula, it will calculate the smallest set of infinitely resolved peaks (isotopologues) that jointly is \code{p} probable, where \code{p} is provided by the user.
@@ -34,20 +31,19 @@ NULL
 #' @param stopCondition A numeric value between 0 and 1.
 #' @param showCounts Logical. If \code{TRUE}, then we output matrix contains additionally counts of isotopes for each isotopologue.
 #' @param trim Logical. If \code{FALSE}, then we output matrix contains additionally isotopologues that otherwise would get trimmed in order to find the smalles possible p-set. Therefore, switching to \code{FALSE} results in a slightly larger set then the optimal p-set.
-#' @param algo An integer: 0 - use standard IsoStar algoritm,
+#' @param algo An integer: 0 - use standard IsoSpec algoritm,
 #' where \code{stopCondition} specifies the probability of the optimal p-set,
 #' 1 - use a version of algorithm that uses priority queue. Slower than 0, but does not require sorting.
 #' 2 - use a threshold version of the algorithm, where \code{stopCondition} specifies the height of the pruned peaks.
-#' 3 - for the threshold version of IsoStar with \code{stopCondition} being
+#' 3 - for the threshold version of IsoSpec with \code{stopCondition} being
 #' the percentage of the highest peak below which isotopologues get pruned.
-#' @param isotopes  A named list of isotopic information required for IsoStar, e.g. \code{isotopicData$IsoSpecShortList}. The names must be valid element symbols. Each enlisted object should be a \code{data.frame} containing columns \code{element} (specifying the symbol of the element), \code{mass} (specifying the mass of the isotope), \code{abundance} (specyfying the assumed frequency of finding that isotope).
+#' @param isotopes  A named list of isotopic information required for IsoSpec. The names must be valid element symbols, see \code{isotopicData} for examples. Each enlisted object should be a \code{data.frame} containing columns \code{element} (specifying the symbol of the element), \code{mass} (specifying the mass of the isotope), \code{abundance} (specyfying the assumed frequency of finding that isotope).
 #' @param step      The percent of the the percentile of isotopologues in the current isolayer, specyfying the cutoff for the next isolayer. It has been optimised and better not change the default value.
-#' @param tabSize   A technical parameter: the initial size of the \code{C++} dynamic table containing the results. Better not change the default value.
-#' @return A numeric matrix containing the masses, the logarithms of probability, and, optionally, counts of isotopologues. Attention: this matrix does not have to be sorted. Sorting it would also compromise the linear complexity of our algorithm, so if you really really want to, then please do it yourself: we wash our hands.
-#' @export
+#' @return A numeric matrix containing the masses, the logarithms of probability, and, optionally, counts of isotopologues. Attention: this matrix does not have to be sorted. Sorting it would also compromise the linear complexity of our algorithm.
 #' @examples
 #' res <- IsoSpecify( molecule = c(C=10,H=22,O=1), stopCondition = .9999 )
 #' print(res)
+#' @export
 IsoSpecify <- function(
         molecule,
         stopCondition,
@@ -55,8 +51,7 @@ IsoSpecify <- function(
         showCounts = FALSE,
         trim    = TRUE,
         algo    = 0,
-        step    = .25,
-        tabSize = 1000
+        step    = .25
 ){
     if(is.null(isotopes)){
         isotopes <- isotopicData$IsoSpec
@@ -67,7 +62,7 @@ IsoSpecify <- function(
         isotopes        = isotopes,
         stopCondition   = stopCondition,
         algo            = as.integer(algo),
-        tabSize         = tabSize,
+        tabSize         = 1000,
         hashSize        = 1000,
         step            = step,
         showCounts      = showCounts,

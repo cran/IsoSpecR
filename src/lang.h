@@ -1,6 +1,0 @@
-
-
-#define BUILDING_R
-#undef  BUILDING_CPP
-#undef  BUILDING_PYTHON
-
