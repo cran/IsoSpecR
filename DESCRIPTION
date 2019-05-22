@@ -2,8 +2,8 @@ Encoding: UTF-8
 Package: IsoSpecR
 Type: Package
 Title: The IsoSpec Algorithm
-Version: 1.9.2
-Date: 2019-01-21
+Version: 2.0.1
+Date: 2019-05-21
 Author: Mateusz Krzysztof Lacki and Michal Startek
 Maintainer: Matteo Lacki <matteo.lacki@gmail.com>
 Description: IsoSpec is a fine structure calculator used for obtaining the most
@@ -22,8 +22,8 @@ Suggests: testthat
 LazyData: no
 LinkingTo: Rcpp
 NeedsCompilation: yes
-SystemRequirements: C++11
-RoxygenNote: 5.0.1
-Packaged: 2019-01-21 19:30:59 UTC; mist
+SystemRequirements: C++14
+RoxygenNote: 6.1.1
+Packaged: 2019-05-21 13:28:43 UTC; mist
 Repository: CRAN
-Date/Publication: 2019-01-21 22:50:29 UTC
+Date/Publication: 2019-05-22 12:40:03 UTC
