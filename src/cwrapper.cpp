@@ -1,5 +1,5 @@
 /*
- *   Copyright (C) 2015-2019 Mateusz Łącki and Michał Startek.
+ *   Copyright (C) 2015-2020 Mateusz Łącki and Michał Startek.
  *
  *   This file is part of IsoSpec.
  *
@@ -15,18 +15,18 @@
  */
 
 
-#include <tuple>
-#include <string.h>
-#include <iostream>
+#include <cstring>
 #include <algorithm>
+#include <utility>
 #include <stdexcept>
 #include "cwrapper.h"
 #include "misc.h"
 #include "marginalTrek++.h"
 #include "isoSpec++.h"
 #include "fixedEnvelopes.h"
+#include "fasta.h"
 
-using namespace IsoSpec;
+using namespace IsoSpec;  // NOLINT(build/namespaces) - all of this really should be in a namespace IsoSpec, but C doesn't have them...
 
 
 extern "C"
@@ -37,21 +37,14 @@ void * setupIso(int             dimNumber,
                 const double*   isotopeMasses,
                 const double*   isotopeProbabilities)
 {
-    const double** IM = new const double*[dimNumber];
-    const double** IP = new const double*[dimNumber];
-    int idx = 0;
-    for(int i=0; i<dimNumber; i++)
-    {
-        IM[i] = &isotopeMasses[idx];
-        IP[i] = &isotopeProbabilities[idx];
-        idx += isotopeNumbers[i];
-    }
-    //TODO in place (maybe pass a numpy matrix??)
+    Iso* iso = new Iso(dimNumber, isotopeNumbers, atomCounts, isotopeMasses, isotopeProbabilities);
 
-    Iso* iso = new Iso(dimNumber, isotopeNumbers, atomCounts, IM, IP);
+    return reinterpret_cast<void*>(iso);
+}
 
-    delete[] IM;
-    delete[] IP;
+void * isoFromFasta(const char* fasta, bool use_nominal_masses, bool add_water)
+{
+    Iso* iso = new Iso(Iso::FromFASTA(fasta, use_nominal_masses, add_water));
 
     return reinterpret_cast<void*>(iso);
 }
@@ -91,6 +84,25 @@ double getTheoreticalAverageMassIso(void* iso)
     return reinterpret_cast<Iso*>(iso)->getTheoreticalAverageMass();
 }
 
+double getIsoVariance(void* iso)
+{
+    return reinterpret_cast<Iso*>(iso)->variance();
+}
+
+double getIsoStddev(void* iso)
+{
+    return reinterpret_cast<Iso*>(iso)->stddev();
+}
+
+
+double* getMarginalLogSizeEstimates(void* iso, double target_total_prob)
+{
+    Iso* i = reinterpret_cast<Iso*>(iso);
+    double* ret = reinterpret_cast<double*>(malloc(sizeof(double)*i->getDimNumber()));
+    i->saveMarginalLogSizeEstimates(ret, target_total_prob);
+    return ret;
+}
+
 
 
 #define ISOSPEC_C_FN_CODE(generatorType, dataType, method)\
@@ -113,35 +125,41 @@ ISOSPEC_C_FN_DELETE(generatorType)
 
 
 
-//______________________________________________________THRESHOLD GENERATOR
+// ______________________________________________________THRESHOLD GENERATOR
 void* setupIsoThresholdGenerator(void* iso,
                                  double threshold,
                                  bool _absolute,
                                  int _tabSize,
-                                 int _hashSize)
+                                 int _hashSize,
+                                 bool reorder_marginals)
 {
     IsoThresholdGenerator* iso_tmp = new IsoThresholdGenerator(
         std::move(*reinterpret_cast<Iso*>(iso)),
         threshold,
         _absolute,
         _tabSize,
-        _hashSize);
+        _hashSize,
+        reorder_marginals);
 
     return reinterpret_cast<void*>(iso_tmp);
 }
 ISOSPEC_C_FN_CODES(IsoThresholdGenerator)
 
 
-//______________________________________________________LAYERED GENERATOR
+// ______________________________________________________LAYERED GENERATOR
 void* setupIsoLayeredGenerator(void* iso,
                      int _tabSize,
-                     int _hashSize
+                     int _hashSize,
+                     bool reorder_marginals,
+                     double t_prob_hint
                 )
 {
     IsoLayeredGenerator* iso_tmp = new IsoLayeredGenerator(
         std::move(*reinterpret_cast<Iso*>(iso)),
         _tabSize,
-        _hashSize
+        _hashSize,
+        reorder_marginals,
+        t_prob_hint
     );
 
     return reinterpret_cast<void*>(iso_tmp);
@@ -149,7 +167,7 @@ void* setupIsoLayeredGenerator(void* iso,
 ISOSPEC_C_FN_CODES(IsoLayeredGenerator)
 
 
-//______________________________________________________ORDERED GENERATOR
+// ______________________________________________________ORDERED GENERATOR
 void* setupIsoOrderedGenerator(void* iso,
                                int _tabSize,
                                int _hashSize)
@@ -163,111 +181,173 @@ void* setupIsoOrderedGenerator(void* iso,
 }
 ISOSPEC_C_FN_CODES(IsoOrderedGenerator)
 
-//______________________________________________________ Threshold FixedEnvelope
+// ______________________________________________________STOCHASTIC GENERATOR
+void* setupIsoStochasticGenerator(void* iso,
+                                  size_t no_molecules,
+                                  double precision,
+                                  double beta_bias)
+{
+    IsoStochasticGenerator* iso_tmp = new IsoStochasticGenerator(
+        std::move(*reinterpret_cast<Iso*>(iso)),
+        no_molecules,
+        precision,
+        beta_bias);
+
+    return reinterpret_cast<void*>(iso_tmp);
+}
+ISOSPEC_C_FN_CODES(IsoStochasticGenerator)
+
+// ______________________________________________________ FixedEnvelopes
 
 void* setupThresholdFixedEnvelope(void* iso,
                      double threshold,
                      bool absolute,
-                     bool  get_confs,
-                     bool  get_lprobs,
-                     bool  get_masses,
-                     bool  get_probs)
+                     bool  get_confs)
 {
-    ThresholdFixedEnvelope* tabulator = new ThresholdFixedEnvelope(std::move(*reinterpret_cast<Iso*>(iso)),
+    FixedEnvelope* ret = new FixedEnvelope(  // Use copy elision to allocate on heap with named constructor
+            FixedEnvelope::FromThreshold(Iso(*reinterpret_cast<const Iso*>(iso), true),
                                          threshold,
                                          absolute,
-                                         get_confs,
-                                         get_lprobs,
-                                         get_masses,
-                                         get_probs);
+                                         get_confs));
 
-    return reinterpret_cast<void*>(tabulator);
+    return reinterpret_cast<void*>(ret);
 }
-
-void deleteThresholdFixedEnvelope(void* t)
-{
-    delete reinterpret_cast<ThresholdFixedEnvelope*>(t);
-}
-
-const double* massesThresholdFixedEnvelope(void* tabulator)
-{
-    return reinterpret_cast<ThresholdFixedEnvelope*>(tabulator)->release_masses();
-}
-
-const double* lprobsThresholdFixedEnvelope(void* tabulator)
-{
-    return reinterpret_cast<ThresholdFixedEnvelope*>(tabulator)->release_lprobs();
-}
-
-const double* probsThresholdFixedEnvelope(void* tabulator)
-{
-    return reinterpret_cast<ThresholdFixedEnvelope*>(tabulator)->release_probs();
-}
-
-const int*    confsThresholdFixedEnvelope(void* tabulator)
-{
-    return reinterpret_cast<ThresholdFixedEnvelope*>(tabulator)->release_confs();
-}
-
-int confs_noThresholdFixedEnvelope(void* tabulator)
-{
-    return reinterpret_cast<ThresholdFixedEnvelope*>(tabulator)->confs_no();
-}
-
-
-//______________________________________________________ Layered FixedEnvelope
 
 void* setupTotalProbFixedEnvelope(void* iso,
                      double target_coverage,
                      bool optimize,
-                     bool  get_confs,
-                     bool  get_lprobs,
-                     bool  get_masses,
-                     bool  get_probs)
+                     bool get_confs)
 {
-    TotalProbFixedEnvelope* tabulator = new TotalProbFixedEnvelope(std::move(*reinterpret_cast<Iso*>(iso)),
+    FixedEnvelope* ret = new FixedEnvelope(  // Use copy elision to allocate on heap with named constructor
+            FixedEnvelope::FromTotalProb(Iso(*reinterpret_cast<const Iso*>(iso), true),
                                          target_coverage,
                                          optimize,
-                                         get_confs,
-                                         get_lprobs,
-                                         get_masses,
-                                         get_probs);
+                                         get_confs));
 
-    return reinterpret_cast<void*>(tabulator);
+    return reinterpret_cast<void*>(ret);
 }
 
-void deleteTotalProbFixedEnvelope(void* t)
+void* setupFixedEnvelope(double* masses, double* probs, size_t size, bool mass_sorted, bool prob_sorted, double total_prob)
 {
-    delete reinterpret_cast<TotalProbFixedEnvelope*>(t);
+    FixedEnvelope* ret = new FixedEnvelope(masses, probs, size, mass_sorted, prob_sorted, total_prob);
+    return reinterpret_cast<void*>(ret);
 }
 
-const double* massesTotalProbFixedEnvelope(void* tabulator)
+void deleteFixedEnvelope(void* t, bool release_everything)
 {
-    return reinterpret_cast<TotalProbFixedEnvelope*>(tabulator)->release_masses();
+    FixedEnvelope* tt = reinterpret_cast<FixedEnvelope*>(t);
+    if(release_everything)
+    {
+        tt->release_masses();
+        tt->release_probs();
+        tt->release_confs();
+    }
+    delete tt;
 }
 
-const double* lprobsTotalProbFixedEnvelope(void* tabulator)
+const double* massesFixedEnvelope(void* tabulator)
 {
-    return reinterpret_cast<TotalProbFixedEnvelope*>(tabulator)->release_lprobs();
+    return reinterpret_cast<FixedEnvelope*>(tabulator)->release_masses();
 }
 
-const double* probsTotalProbFixedEnvelope(void* tabulator)
+const double* probsFixedEnvelope(void* tabulator)
 {
-    return reinterpret_cast<TotalProbFixedEnvelope*>(tabulator)->release_probs();
+    return reinterpret_cast<FixedEnvelope*>(tabulator)->release_probs();
 }
 
-const int*    confsTotalProbFixedEnvelope(void* tabulator)
+const int* confsFixedEnvelope(void* tabulator)
 {
-    return reinterpret_cast<TotalProbFixedEnvelope*>(tabulator)->release_confs();
+    return reinterpret_cast<FixedEnvelope*>(tabulator)->release_confs();
 }
 
-int confs_noTotalProbFixedEnvelope(void* tabulator)
+int confs_noFixedEnvelope(void* tabulator)
 {
-    return reinterpret_cast<TotalProbFixedEnvelope*>(tabulator)->confs_no();
+    return reinterpret_cast<FixedEnvelope*>(tabulator)->confs_no();
+}
+
+double wassersteinDistance(void* tabulator1, void* tabulator2)
+{
+    try
+    {
+        return reinterpret_cast<FixedEnvelope*>(tabulator1)->WassersteinDistance(*reinterpret_cast<FixedEnvelope*>(tabulator2));
+    }
+    catch(std::logic_error&)
+    {
+        return NAN;
+    }
+}
+
+double orientedWassersteinDistance(void* tabulator1, void* tabulator2)
+{
+    try
+    {
+        return reinterpret_cast<FixedEnvelope*>(tabulator1)->OrientedWassersteinDistance(*reinterpret_cast<FixedEnvelope*>(tabulator2));
+    }
+    catch(std::logic_error&)
+    {
+        return NAN;
+    }
+}
+
+
+void* addEnvelopes(void* tabulator1, void* tabulator2)
+{
+    //  Hopefully the compiler will do the copy elision...
+    return reinterpret_cast<void*>(new FixedEnvelope((*reinterpret_cast<FixedEnvelope*>(tabulator1))+(*reinterpret_cast<FixedEnvelope*>(tabulator2))));
+}
+
+void* convolveEnvelopes(void* tabulator1, void* tabulator2)
+{
+    //  Hopefully the compiler will do the copy elision...
+    return reinterpret_cast<void*>(new FixedEnvelope((*reinterpret_cast<FixedEnvelope*>(tabulator1))*(*reinterpret_cast<FixedEnvelope*>(tabulator2))));
+}
+
+double getTotalProbOfEnvelope(void* envelope)
+{
+    return reinterpret_cast<FixedEnvelope*>(envelope)->get_total_prob();
+}
+
+void scaleEnvelope(void* envelope, double factor)
+{
+    reinterpret_cast<FixedEnvelope*>(envelope)->scale(factor);
+}
+
+void normalizeEnvelope(void* envelope)
+{
+    reinterpret_cast<FixedEnvelope*>(envelope)->normalize();
+}
+
+void* binnedEnvelope(void* envelope, double width, double middle)
+{
+    //  Again, counting on copy elision...
+    return reinterpret_cast<void*>(new FixedEnvelope(reinterpret_cast<FixedEnvelope*>(envelope)->bin(width, middle)));
+}
+
+void* linearCombination(void* const * const envelopes, const double* intensities, size_t count)
+{
+    //  Same...
+    return reinterpret_cast<void*>(new FixedEnvelope(FixedEnvelope::LinearCombination(reinterpret_cast<const FixedEnvelope* const *>(envelopes), intensities, count)));
+}
+
+void sortEnvelopeByMass(void* envelope)
+{
+    reinterpret_cast<FixedEnvelope*>(envelope)->sort_by_mass();
+}
+
+void sortEnvelopeByProb(void* envelope)
+{
+    reinterpret_cast<FixedEnvelope*>(envelope)->sort_by_prob();
 }
 
 void freeReleasedArray(void* array)
 {
     free(array);
 }
-}  //extern "C" ends here
+
+void parse_fasta_c(const char* fasta, int atomCounts[6])
+{
+    // Same thing, only this time with C linkage
+    parse_fasta(fasta, atomCounts);
+}
+
+}  //  extern "C" ends here

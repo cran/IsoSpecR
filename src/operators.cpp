@@ -1,5 +1,5 @@
 /*
- *   Copyright (C) 2015-2019 Mateusz Łącki and Michał Startek.
+ *   Copyright (C) 2015-2020 Mateusz Łącki and Michał Startek.
  *
  *   This file is part of IsoSpec.
  *
@@ -21,7 +21,7 @@ namespace IsoSpec
 {
 
 KeyHasher::KeyHasher(int _dim)
-: dim(_dim)
+: dim(_dim-1)
 {}
 
 ConfEqual::ConfEqual(int dim)
@@ -35,15 +35,4 @@ ConfOrderMarginal::ConfOrderMarginal(const double* _logProbs, int _dim)
 ConfOrderMarginalDescending::ConfOrderMarginalDescending(const double* _logProbs, int _dim)
 : logProbs(_logProbs), dim(_dim)
 {}
-
-
-OrderMarginalsBySizeDecresing::OrderMarginalsBySizeDecresing(PrecalculatedMarginal const* const * const _T) : T(_T) {}
-
-bool OrderMarginalsBySizeDecresing::operator()(int m1, int m2)
-{
-    return T[m1]->get_no_confs() > T[m2]->get_no_confs();
-}
-
-
-} // namespace IsoSpec
-
+}  // namespace IsoSpec

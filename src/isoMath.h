@@ -1,5 +1,5 @@
 /*
- *   Copyright (C) 2015-2019 Mateusz Łącki and Michał Startek.
+ *   Copyright (C) 2015-2020 Mateusz Łącki and Michał Startek.
  *
  *   This file is part of IsoSpec.
  *
@@ -17,13 +17,18 @@
 #pragma once
 
 #include <cmath>
-#include <fenv.h>
+#include <random>
 
 #if !defined(ISOSPEC_G_FACT_TABLE_SIZE)
 // 10M should be enough for anyone, right?
 // Actually, yes. If anyone tries to input a molecule that has more than 10M atoms,
-// he deserves to get an exception thrown in his face.
-#define ISOSPEC_G_FACT_TABLE_SIZE 1024*1024*10
+// he deserves to get an exception thrown in his face. OpenMS guys don't want to alloc
+// a table of 10M to memoize the necessary values though, use something smaller for them.
+  #if ISOSPEC_BUILDING_OPENMS
+    #define ISOSPEC_G_FACT_TABLE_SIZE 1024
+  #else
+    #define ISOSPEC_G_FACT_TABLE_SIZE 1024*1024*10
+  #endif
 #endif
 
 namespace IsoSpec
@@ -35,6 +40,10 @@ static inline double minuslogFactorial(int n)
 {
     if (n < 2)
         return 0.0;
+    #if ISOSPEC_BUILDING_OPENMS
+    if (n >= ISOSPEC_G_FACT_TABLE_SIZE)
+        return -lgamma(n+1);
+    #endif
     if (g_lfact_table[n] == 0.0)
         g_lfact_table[n] = -lgamma(n+1);
 
@@ -42,7 +51,7 @@ static inline double minuslogFactorial(int n)
 }
 
 const double pi = 3.14159265358979323846264338328;
-const double log2pluslogpi = log(2.0) + log(pi);
+const double logpi = 1.144729885849400174143427351353058711647294812915311571513623071472137769884826079783623270275489708;
 
 double NormalCDFInverse(double p);
 double NormalCDFInverse(double p, double mean, double stdev);
@@ -61,7 +70,18 @@ inline double InverseChiSquareCDF2(int k, double x)
     return InverseLowerIncompleteGamma2(k, x*tgamma(static_cast<double>(k)/2.0)) * 2.0;
 }
 
+extern std::mt19937 random_gen;
+extern std::uniform_real_distribution<double> stdunif;
+
+inline double rdvariate_beta_1_b(double b, std::mt19937& rgen = random_gen)
+{
+    return 1.0 - pow(stdunif(rgen), 1.0/b);
+}
 
 
-} // namespace IsoSpec
+size_t rdvariate_binom(size_t tries, double succ_prob, std::mt19937& rgen = random_gen);
 
+
+
+
+}  // namespace IsoSpec

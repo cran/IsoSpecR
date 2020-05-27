@@ -1,5 +1,5 @@
 /*
- *   Copyright (C) 2015-2019 Mateusz Łącki and Michał Startek.
+ *   Copyright (C) 2015-2020 Mateusz Łącki and Michał Startek.
  *
  *   This file is part of IsoSpec.
  *
@@ -51,11 +51,11 @@
 #endif
 
 #if !defined(ISOSPEC_USE_PTHREADS)
-#define ISOSPEC_USE_PTHREADS false /* TODO: possibly put a macro here to detect whether we */
-#endif                             /* can/should use pthreads - or rip them out altogether.
-                                    * Investigate whether the performance advantage of pthreads on
-                                    * some platforms (*cough* CYGWIN *cough*) is still large
-                                    * enough to justify keeping both implementations around */
+#define ISOSPEC_USE_PTHREADS false  // TODO(who knows?): possibly put a macro here to detect whether we
+#endif                              // can/should use pthreads - or rip them out altogether.
+                                    // Investigate whether the performance advantage of pthreads on
+                                    // some platforms (*cough* CYGWIN *cough*) is still large
+                                    // enough to justify keeping both implementations around
 
 #if !defined(ISOSPEC_WE_ARE_ON_UNIX_YAY)
 #define ISOSPEC_WE_ARE_ON_UNIX_YAY ISOSPEC_TEST_WE_ARE_ON_UNIX_YAY
@@ -76,19 +76,28 @@
 
 // Note: __GNUC__ is defined by clang and gcc
 #ifdef __GNUC__
+#define ISOSPEC_IMPOSSIBLE(condition) if(condition) __builtin_unreachable();
 #define ISOSPEC_LIKELY(condition) __builtin_expect(static_cast<bool>(condition), 1)
 #define ISOSPEC_UNLIKELY(condition) __builtin_expect(static_cast<bool>(condition), 0)
 // For aggressive inlining
 #define ISOSPEC_FORCE_INLINE __attribute__ ((always_inline)) inline
 #elif defined _MSC_VER
+#define ISOSPEC_IMPOSSIBLE(condition) __assume(!(condition));
 #define ISOSPEC_LIKELY(condition) condition
 #define ISOSPEC_UNLIKELY(condition) condition
 #define ISOSPEC_FORCE_INLINE __forceinline inline
 #else
+#define ISOSPEC_IMPOSSIBLE(condition)
 #define ISOSPEC_LIKELY(condition) condition
 #define ISOSPEC_UNLIKELY(condition) condition
 #define ISOSPEC_FORCE_INLINE inline
 #endif
+
+#if ISOSPEC_DEBUG
+#undef ISOSPEC_IMPOSSIBLE
+#include <cassert>
+#define ISOSPEC_IMPOSSIBLE(condition) assert(!(condition));
+#endif /* ISOSPEC_DEBUG */
 
 
 #if ISOSPEC_GOT_MMAN
@@ -108,8 +117,10 @@
 #define ISOSPEC_EXPORT_SYMBOL
 #endif
 
-#if ISOSPEC_BUILDING_R && !defined(__cpp_if_constexpr)
+#if !defined(__cpp_if_constexpr)
 #define constexpr_if if
+#define ISOSPEC_MAYBE_UNUSED
 #else
 #define constexpr_if if constexpr
+#define ISOSPEC_MAYBE_UNUSED [[maybe_unused]]
 #endif

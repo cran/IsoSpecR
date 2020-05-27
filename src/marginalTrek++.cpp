@@ -1,5 +1,5 @@
 /*
- *   Copyright (C) 2015-2019 Mateusz Łącki and Michał Startek.
+ *   Copyright (C) 2015-2020 Mateusz Łącki and Michał Startek.
  *
  *   This file is part of IsoSpec.
  *
@@ -18,18 +18,14 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
-#include <stdlib.h>
-#include <tuple>
+#include <cstdlib>
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
 #include <utility>
-#include <iostream>
-#include <string.h>
+#include <cstring>
 #include <string>
 #include <limits>
-#include <cstdlib>
-#include <fenv.h>
 #include "platform.h"
 #include "marginalTrek++.h"
 #include "conf.h"
@@ -52,17 +48,16 @@ namespace IsoSpec
     \param atomCnt
 
 */
-Conf initialConfigure(const int atomCnt, const int isotopeNo, const double* probs, const double* lprobs)
+void writeInitialConfiguration(const int atomCnt, const int isotopeNo, const double* lprobs, int* res)
 {
     /*!
     Here we perform hill climbing to the mode of the marginal distribution (the subisotopologue distribution).
     We start from the point close to the mean of the underlying multinomial distribution.
     */
-    Conf res = new int[isotopeNo];
 
     // This approximates the mode (heuristics: the mean is close to the mode).
-    for(int i = 0; i < isotopeNo; ++i )
-        res[i] = int( atomCnt * probs[i] ) + 1;
+    for(int i = 0; i < isotopeNo; ++i)
+        res[i] = static_cast<int>( atomCnt * exp(lprobs[i]) ) + 1;
 
     // The number of assigned atoms above.
     int s = 0;
@@ -78,10 +73,10 @@ Conf initialConfigure(const int atomCnt, const int isotopeNo, const double* prob
     // Too much: trying to redistribute the difference: hopefully the first element is the largest.
     if( diff < 0 ){
         diff = abs(diff);
-        int i = 0, coordDiff = 0;
+        int i = 0;
 
         while( diff > 0){
-            coordDiff = res[i] - diff;
+            int coordDiff = res[i] - diff;
 
             if( coordDiff >= 0 ){
                 res[i] -= diff;
@@ -103,48 +98,26 @@ Conf initialConfigure(const int atomCnt, const int isotopeNo, const double* prob
     while(modified)
     {
         modified = false;
-        for(int ii = 0; ii<isotopeNo; ii++)
-        for(int jj = 0; jj<isotopeNo; jj++)
-            if(ii != jj && res[ii] > 0)
-        {
-            res[ii]--;
-            res[jj]++;
-            NLP = unnormalized_logProb(res, lprobs, isotopeNo);
-            if(NLP>LP || (NLP==LP && ii>jj))
-            {
-                modified = true;
-            LP = NLP;
-            }
-            else
-            {
-                res[ii]++;
-            res[jj]--;
-            }
-        }
-
-
-    }
-    return res;
-}
-
-
-
-#if !ISOSPEC_BUILDING_R
-void printMarginal( const std::tuple<double*,double*,int*,int>& results, int dim)
-{
-    for(int i=0; i<std::get<3>(results); i++){
-
-        std::cout << "Mass = "  << std::get<0>(results)[i] <<
-        " log-prob =\t"                 << std::get<1>(results)[i] <<
-        " prob =\t"                     << exp(std::get<1>(results)[i]) <<
-        "\tand configuration =\t";
-
-        for(int j=0; j<dim; j++) std::cout << std::get<2>(results)[i*dim + j] << " ";
-
-        std::cout << std::endl;
+        for(int ii = 0; ii < isotopeNo; ii++)
+            for(int jj = 0; jj < isotopeNo; jj++)
+                if(ii != jj && res[ii] > 0)
+                {
+                    res[ii]--;
+                    res[jj]++;
+                    NLP = unnormalized_logProb(res, lprobs, isotopeNo);
+                    if(NLP > LP || (NLP == LP && ii > jj))
+                    {
+                        modified = true;
+                        LP = NLP;
+                    }
+                    else
+                    {
+                        res[ii]++;
+                        res[jj]--;
+                    }
+                }
     }
 }
-#endif
 
 
 double* getMLogProbs(const double* probs, int isoNo)
@@ -154,35 +127,41 @@ double* getMLogProbs(const double* probs, int isoNo)
     Rounding down could result in the algorithm falling in an infinite loop
     because of the numerical instability of summing.
     */
-    int curr_method = fegetround();
-    fesetround(FE_UPWARD);
+    for(int ii = 0; ii < isoNo; ii++)
+        if(probs[ii] <= 0.0 || probs[ii] > 1.0)
+            throw std::invalid_argument("All isotope probabilities p must fulfill: 0.0 < p <= 1.0");
+
     double* ret = new double[isoNo];
 
     // here we change the table of probabilities and log it.
     for(int i = 0; i < isoNo; i++)
     {
         ret[i] = log(probs[i]);
-        for(int j=0; j<ISOSPEC_NUMBER_OF_ISOTOPIC_ENTRIES; j++)
+        for(int j = 0; j < ISOSPEC_NUMBER_OF_ISOTOPIC_ENTRIES; j++)
             if(elem_table_probability[j] == probs[i])
             {
                 ret[i] = elem_table_log_probability[j];
                 break;
             }
     }
-    fesetround(curr_method);
     return ret;
 }
 
 double get_loggamma_nominator(int x)
 {
     // calculate log gamma of the nominator calculated in the binomial exression.
-    int curr_method = fegetround();
-    fesetround(FE_UPWARD);
     double ret = lgamma(x+1);
-    fesetround(curr_method);
     return ret;
 }
 
+int verify_atom_cnt(int atomCnt)
+{
+    #if !ISOSPEC_BUILDING_OPENMS
+    if(ISOSPEC_G_FACT_TABLE_SIZE-1 <= atomCnt)
+        throw std::length_error("Subisotopologue too large, size limit (that is, the maximum number of atoms of a single element in a molecule) is: " + std::to_string(ISOSPEC_G_FACT_TABLE_SIZE-1));
+    #endif
+    return atomCnt;
+}
 
 Marginal::Marginal(
     const double* _masses,
@@ -192,48 +171,55 @@ Marginal::Marginal(
 ) :
 disowned(false),
 isotopeNo(_isotopeNo),
-atomCnt(_atomCnt),
-atom_masses(array_copy<double>(_masses, _isotopeNo)),
+atomCnt(verify_atom_cnt(_atomCnt)),
 atom_lProbs(getMLogProbs(_probs, isotopeNo)),
+atom_masses(array_copy<double>(_masses, _isotopeNo)),
 loggamma_nominator(get_loggamma_nominator(_atomCnt)),
-mode_conf(initialConfigure(atomCnt, isotopeNo, _probs, atom_lProbs)),
-mode_lprob(loggamma_nominator+unnormalized_logProb(mode_conf, atom_lProbs, isotopeNo)),
-mode_mass(mass(mode_conf, atom_masses, isotopeNo)),
-mode_prob(exp(mode_lprob)),
-smallest_lprob(atomCnt * *std::min_element(atom_lProbs, atom_lProbs+isotopeNo))
+mode_conf(nullptr)
+// Deliberately not initializing mode_lprob
+{}
+
+Marginal::Marginal(const Marginal& other) :
+disowned(false),
+isotopeNo(other.isotopeNo),
+atomCnt(other.atomCnt),
+atom_lProbs(array_copy<double>(other.atom_lProbs, isotopeNo)),
+atom_masses(array_copy<double>(other.atom_masses, isotopeNo)),
+loggamma_nominator(other.loggamma_nominator)
 {
-    try
+    if(other.mode_conf == nullptr)
     {
-        if(ISOSPEC_G_FACT_TABLE_SIZE-1 <= atomCnt)
-            throw std::length_error("Subisotopologue too large, size limit (that is, the maximum number of atoms of a single element in a molecule) is: " + std::to_string(ISOSPEC_G_FACT_TABLE_SIZE-1));
-        for(size_t ii = 0; ii < isotopeNo; ii++)
-            if(_probs[ii] <= 0.0 || _probs[ii] > 1.0)
-                throw std::invalid_argument("All isotope probabilities p must fulfill: 0.0 < p <= 1.0");
+        mode_conf = nullptr;
+        // Deliberately not initializing mode_lprob. In this state other.mode_lprob is uninitialized too.
     }
-    catch(...)
+    else
     {
-        delete[] atom_masses;
-        delete[] atom_lProbs;
-        delete[] mode_conf;
-        throw;
+        mode_conf = array_copy<int>(other.mode_conf, isotopeNo);
+        mode_lprob = other.mode_lprob;
     }
 }
+
 
 // the move-constructor: used in the specialization of the marginal.
 Marginal::Marginal(Marginal&& other) :
 disowned(other.disowned),
 isotopeNo(other.isotopeNo),
 atomCnt(other.atomCnt),
-atom_masses(other.atom_masses),
 atom_lProbs(other.atom_lProbs),
-loggamma_nominator(other.loggamma_nominator),
-mode_conf(other.mode_conf),
-mode_lprob(other.mode_lprob),
-mode_mass(other.mode_mass),
-mode_prob(other.mode_prob),
-smallest_lprob(other.smallest_lprob)
+atom_masses(other.atom_masses),
+loggamma_nominator(other.loggamma_nominator)
 {
     other.disowned = true;
+    if(other.mode_conf == nullptr)
+    {
+        mode_conf = nullptr;
+        // Deliberately not initializing mode_lprob. In this state other.mode_lprob is uninitialized too.
+    }
+    else
+    {
+        mode_conf = other.mode_conf;
+        mode_lprob = other.mode_lprob;
+    }
 }
 
 Marginal::~Marginal()
@@ -247,10 +233,25 @@ Marginal::~Marginal()
 }
 
 
+Conf Marginal::computeModeConf() const
+{
+    Conf res = new int[isotopeNo];
+    writeInitialConfiguration(atomCnt, isotopeNo, atom_lProbs, res);
+    return res;
+}
+
+void Marginal::setupMode()
+{
+    ISOSPEC_IMPOSSIBLE(mode_conf != nullptr);
+    mode_conf = computeModeConf();
+    mode_lprob = logProb(mode_conf);
+}
+
+
 double Marginal::getLightestConfMass() const
 {
     double ret_mass = std::numeric_limits<double>::infinity();
-    for(unsigned int ii=0; ii < isotopeNo; ii++)
+    for(unsigned int ii = 0; ii < isotopeNo; ii++)
         if( ret_mass > atom_masses[ii] )
             ret_mass = atom_masses[ii];
     return ret_mass*atomCnt;
@@ -259,7 +260,7 @@ double Marginal::getLightestConfMass() const
 double Marginal::getHeaviestConfMass() const
 {
     double ret_mass = 0.0;
-    for(unsigned int ii=0; ii < isotopeNo; ii++)
+    for(unsigned int ii = 0; ii < isotopeNo; ii++)
         if( ret_mass < atom_masses[ii] )
             ret_mass = atom_masses[ii];
     return ret_mass*atomCnt;
@@ -268,8 +269,8 @@ double Marginal::getHeaviestConfMass() const
 double Marginal::getMonoisotopicConfMass() const
 {
     double found_prob = -std::numeric_limits<double>::infinity();
-    double found_mass = 0.0; // to avoid uninitialized var warning
-    for(unsigned int ii=0; ii < isotopeNo; ii++)
+    double found_mass = 0.0;  // to avoid uninitialized var warning
+    for(unsigned int ii = 0; ii < isotopeNo; ii++)
         if( found_prob < atom_lProbs[ii] )
         {
             found_prob = atom_lProbs[ii];
@@ -278,13 +279,46 @@ double Marginal::getMonoisotopicConfMass() const
     return found_mass*atomCnt;
 }
 
-double Marginal::getTheoreticalAverageMass() const
+double Marginal::getAtomAverageMass() const
 {
     double ret = 0.0;
     for(unsigned int ii = 0; ii < isotopeNo; ii++)
         ret += exp(atom_lProbs[ii]) * atom_masses[ii];
+    return ret;
+}
+
+double Marginal::variance() const
+{
+    double ret = 0.0;
+    double mean = getAtomAverageMass();
+    for(size_t ii = 0; ii < isotopeNo; ii++)
+    {
+        double msq = atom_masses[ii] - mean;
+        ret += exp(atom_lProbs[ii]) * msq * msq;
+    }
     return ret * atomCnt;
 }
+
+double Marginal::getLogSizeEstimate(double logEllipsoidRadius) const
+{
+    if(isotopeNo <= 1)
+        return -std::numeric_limits<double>::infinity();
+
+    const double i = static_cast<double>(isotopeNo);
+    const double k = i - 1.0;
+    const double n = static_cast<double>(atomCnt);
+
+    double sum_lprobs = 0.0;
+    for(int jj = 0; jj < i; jj++)
+        sum_lprobs += atom_lProbs[jj];
+
+    double log_V_simplex = k * log(n) - lgamma(i);
+    double log_N_simplex = lgamma(n+i) - lgamma(n+1.0) - lgamma(i);
+    double log_V_ellipsoid = (k * (log(n) + logpi + logEllipsoidRadius) + sum_lprobs) * 0.5 - lgamma((i+1)*0.5);
+
+    return log_N_simplex + log_V_ellipsoid - log_V_simplex;
+}
+
 
 // this is roughly an equivalent of IsoSpec-Threshold-Generator
 MarginalTrek::MarginalTrek(
@@ -297,7 +331,7 @@ current_count(0),
 keyHasher(isotopeNo),
 equalizer(isotopeNo),
 orderMarginal(atom_lProbs, isotopeNo),
-visited(hashSize,keyHasher,equalizer),
+visited(hashSize, keyHasher, equalizer),
 pq(orderMarginal),
 totalProb(),
 candidate(new int[isotopeNo]),
@@ -330,7 +364,7 @@ bool MarginalTrek::add_next_conf()
     visited[topConf] = current_count;
 
     _confs.push_back(topConf);
-    _conf_masses.push_back(mass(topConf, atom_masses, isotopeNo));
+    _conf_masses.push_back(calc_mass(topConf, atom_masses, isotopeNo));
     double logprob = logProb(topConf);
     _conf_lprobs.push_back(logprob);
 
@@ -368,7 +402,7 @@ int MarginalTrek::processUntilCutoff(double cutoff)
 {
     Summator s;
     int last_idx = -1;
-    for(unsigned int i=0; i<_conf_lprobs.size(); i++)
+    for(unsigned int i = 0; i < _conf_lprobs.size(); i++)
     {
         s.add(_conf_lprobs[i]);
         if(s.get() >= cutoff)
@@ -405,10 +439,12 @@ allocator(isotopeNo, tabSize)
     const KeyHasher keyHasher(isotopeNo);
     const ConfOrderMarginalDescending orderMarginal(atom_lProbs, isotopeNo);
 
-    std::unordered_set<Conf,KeyHasher,ConfEqual> visited(hashSize,keyHasher,equalizer);
+    lCutOff -= loggamma_nominator;
+
+    std::unordered_set<Conf, KeyHasher, ConfEqual> visited(hashSize, keyHasher, equalizer);
 
     Conf currentConf = allocator.makeCopy(mode_conf);
-    if(logProb(currentConf) >= lCutOff)
+    if(unnormalized_logProb(currentConf) >= lCutOff)
     {
         // create a copy and store a ptr to the *same* copy in both structures
         // (save some space and time)
@@ -424,13 +460,15 @@ allocator(isotopeNo, tabSize)
         memcpy(currentConf, configurations[idx], sizeof(int)*isotopeNo);
         idx++;
         for(unsigned int ii = 0; ii < isotopeNo; ii++ )
+        {
+            currentConf[ii]++;
             for(unsigned int jj = 0; jj < isotopeNo; jj++ )
+            {
                 if( ii != jj && currentConf[jj] > 0)
                 {
-                    currentConf[ii]++;
                     currentConf[jj]--;
 
-                    if (visited.count(currentConf) == 0 && logProb(currentConf) >= lCutOff)
+                    if (visited.count(currentConf) == 0 && unnormalized_logProb(currentConf) >= lCutOff)
                     {
                         // create a copy and store a ptr to the *same* copy in
                         // both structures (save some space and time)
@@ -440,10 +478,11 @@ allocator(isotopeNo, tabSize)
                         // std::cout << " V: "; for (auto it : visited) std::cout << it << " "; std::cout << std::endl;
                     }
 
-                    currentConf[ii]--;
                     currentConf[jj]++;
-
                 }
+            }
+            currentConf[ii]--;
+        }
     }
 
     // orderMarginal defines the order of configurations (compares their logprobs)
@@ -459,11 +498,11 @@ allocator(isotopeNo, tabSize)
     masses = new double[no_confs];
 
 
-    for(unsigned int ii=0; ii < no_confs; ii++)
+    for(unsigned int ii = 0; ii < no_confs; ii++)
     {
         lProbs[ii] = logProb(confs[ii]);
         probs[ii] = exp(lProbs[ii]);
-        masses[ii] = mass(confs[ii], atom_masses, isotopeNo);
+        masses[ii] = calc_mass(confs[ii], atom_masses, isotopeNo);
     }
     lProbs[no_confs] = -std::numeric_limits<double>::infinity();
 }
@@ -486,7 +525,7 @@ PrecalculatedMarginal::~PrecalculatedMarginal()
 
 
 LayeredMarginal::LayeredMarginal(Marginal&& m, int tabSize, int _hashSize)
-: Marginal(std::move(m)), current_threshold(1.0), allocator(isotopeNo, tabSize), sorted_up_to_idx(0),
+: Marginal(std::move(m)), current_threshold(1.0), allocator(isotopeNo, tabSize),
 equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(atom_lProbs, isotopeNo), hashSize(_hashSize)
 {
     fringe.push_back(mode_conf);
@@ -495,19 +534,16 @@ equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(atom_lProbs, isotopeNo
     guarded_lProbs = lProbs.data()+1;
 }
 
-bool LayeredMarginal::extend(double new_threshold)
+bool LayeredMarginal::extend(double new_threshold, bool do_sort)
 {
     if(fringe.empty())
         return false;
 
-    // TODO: Make sorting optional (controlled by argument?)
     std::vector<Conf> new_fringe;
-    std::unordered_set<Conf,KeyHasher,ConfEqual> visited(hashSize,keyHasher,equalizer);
+    std::unordered_set<Conf, KeyHasher, ConfEqual> visited(hashSize, keyHasher, equalizer);
 
-    for(unsigned int ii = 0; ii<fringe.size(); ii++)
+    for(unsigned int ii = 0; ii < fringe.size(); ii++)
         visited.insert(fringe[ii]);
-
-    double lpc, opc;
 
     Conf currentConf;
     while(!fringe.empty())
@@ -515,7 +551,7 @@ bool LayeredMarginal::extend(double new_threshold)
         currentConf = fringe.back();
         fringe.pop_back();
 
-        opc = logProb(currentConf);
+        double opc = logProb(currentConf);
 
         if(opc < new_threshold)
             new_fringe.push_back(currentConf);
@@ -524,21 +560,24 @@ bool LayeredMarginal::extend(double new_threshold)
         {
             configurations.push_back(currentConf);
             for(unsigned int ii = 0; ii < isotopeNo; ii++ )
+            {
+                currentConf[ii]++;
                 for(unsigned int jj = 0; jj < isotopeNo; jj++ )
+                {
                     if( ii != jj && currentConf[jj] > 0 )
                     {
-                        currentConf[ii]++;
                         currentConf[jj]--;
 
-                        lpc = logProb(currentConf);
+                        double lpc = logProb(currentConf);
 
-                        if (visited.count(currentConf) == 0 && lpc < current_threshold &&
-                            (opc > lpc || (opc == lpc && ii > jj)))
+                        if (lpc < current_threshold &&
+                            (opc > lpc || (opc == lpc && ii > jj)) && visited.count(currentConf) == 0)
                         {
                             Conf nc = allocator.makeCopy(currentConf);
                             currentConf[ii]--;
                             currentConf[jj]++;
                             visited.insert(nc);
+                            currentConf[ii]++;
                             if(lpc >= new_threshold)
                                 fringe.push_back(nc);
                             else
@@ -546,18 +585,20 @@ bool LayeredMarginal::extend(double new_threshold)
                         }
                         else
                         {
-                            currentConf[ii]--;
                             currentConf[jj]++;
                         }
-
                     }
+                }
+                currentConf[ii]--;
+            }
         }
     }
 
     current_threshold = new_threshold;
     fringe.swap(new_fringe);
 
-    std::sort(configurations.begin()+sorted_up_to_idx, configurations.end(), orderMarginal);
+    if(do_sort)
+        std::sort(configurations.begin()+probs.size(), configurations.end(), orderMarginal);
 
     if(lProbs.capacity() * 2 < configurations.size() + 2)
     {
@@ -565,27 +606,43 @@ bool LayeredMarginal::extend(double new_threshold)
         lProbs.reserve(configurations.size()+2);
         probs.reserve(configurations.size());
         masses.reserve(configurations.size());
-    } // Otherwise we're growing slowly enough that standard reallocations on push_back work better - we waste some extra memory
-      // but don't reallocate on every call
+    }  // Otherwise we're growing slowly enough that standard reallocations on push_back work better - we waste some extra memory
+       // but don't reallocate on every call
 
-    lProbs.pop_back(); // The guardian...
+    lProbs.pop_back();  // The guardian...
 
-    for(unsigned int ii=sorted_up_to_idx; ii < configurations.size(); ii++)
+    for(unsigned int ii = probs.size(); ii < configurations.size(); ii++)
     {
         lProbs.push_back(logProb(configurations[ii]));
         probs.push_back(exp(lProbs.back()));
-        masses.push_back(mass(configurations[ii], atom_masses, isotopeNo));
+        masses.push_back(calc_mass(configurations[ii], atom_masses, isotopeNo));
     }
 
-    lProbs.push_back(-std::numeric_limits<double>::infinity()); // Restore guardian
+    lProbs.push_back(-std::numeric_limits<double>::infinity());  // Restore guardian
 
-    sorted_up_to_idx = configurations.size();
-    guarded_lProbs = lProbs.data()+1; // Vector might have reallocated its backing storage
+    guarded_lProbs = lProbs.data()+1;  // Vector might have reallocated its backing storage
 
     return true;
 }
 
 
+double LayeredMarginal::get_min_mass() const
+{
+    double ret = std::numeric_limits<double>::infinity();
+    for(std::vector<double>::const_iterator it = masses.begin(); it != masses.end(); ++it)
+        if(*it < ret)
+            ret = *it;
+    return ret;
+}
 
-} // namespace IsoSpec
 
+double LayeredMarginal::get_max_mass() const
+{
+    double ret = -std::numeric_limits<double>::infinity();
+    for(std::vector<double>::const_iterator it = masses.begin(); it != masses.end(); ++it)
+        if(*it > ret)
+            ret = *it;
+    return ret;
+}
+
+}  // namespace IsoSpec
