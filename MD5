@@ -1,4 +1,4 @@
-055f41d093f7063c59d670bd7138edfa *DESCRIPTION
+6e16509bfb61eb5d5ff2faa4762baf48 *DESCRIPTION
 513ddabb2bff1be2f6812eaf0311bb11 *LICENCE
 c078b6e0fa518b325a07ce389bf3d352 *NAMESPACE
 d1a2d80c3997ba23db82f818bad08078 *R/IsoSpecR.R
@@ -24,14 +24,14 @@ deb5b42f2676800ff9a44a3aa73736ec *src/cwrapper.cpp
 067227b319b5e79331739045f377c5ed *src/dirtyAllocator.h
 85776b02baafa830c2a99b55ab2a9ca5 *src/element_tables.cpp
 f9bdfba4cd4b286953807738d71de034 *src/element_tables.h
-b5393be6968978773c158f7c548775a3 *src/fasta.cpp
+993448e9b469bd93efbba29738f31c94 *src/fasta.cpp
 7f261711c42d2308b5464caf6d9d959c *src/fasta.h
 e4827d5edd3ac1c4e73322a8edc1d4e4 *src/fixedEnvelopes.cpp
 633a0ed0373516a558479cbbd5347937 *src/fixedEnvelopes.h
 98c716503b6691c42ec22ce7b43c5b1f *src/isoMath.cpp
 3d84cda0ba933a0638abcd380d372f5e *src/isoMath.h
 7c8a567536bd2ecc51ab033078fcbd82 *src/isoSpec++.cpp
-aedf9ad19d4751a99d785f01faa8d9e4 *src/isoSpec++.h
+52d28df7375e5469cd7e6fac5c5c2d02 *src/isoSpec++.h
 efecc6ef4eee77a2fcddf49d1ae769c9 *src/marginalTrek++.cpp
 6fc2403016b4360e3d5a948cff52866c *src/marginalTrek++.h
 3c2c90f00ce9fbdf655ad50533e6f019 *src/misc.cpp
@@ -41,7 +41,7 @@ c00af37d1f76dc55a3672f22fd247d6b *src/mman.cpp
 5cd7fd97963a85bac2f10177a64c5a34 *src/operators.cpp
 fe09f7bd2aae1c231ff32a97aa6eefcd *src/operators.h
 740b2a2985d2ff9eaf80067cb14ca127 *src/platform.h
-5519b3d61da9a8c17d9a61d92bfe2a46 *src/pod_vector.h
+c0fa052107dd3ae2b549ab32af0b9e85 *src/pod_vector.h
 ada0d1a8ca87a4cbb41de499f06c7cc4 *src/summator.h
 f193346e97d17a9354e5bbbb2d6750d8 *src/unity-build.cpp
 7acb598337f369472f0645e5ee30f71e *tests/testthat.R
