@@ -91,7 +91,7 @@ void* setupIsoOrderedGenerator(void* iso,
                                int _hashSize);
 ISOSPEC_C_FN_HEADERS(IsoOrderedGenerator)
 
-void* setupIsoStrochasticGenerator(void* iso,
+void* setupIsoStochasticGenerator(void* iso,
                                    size_t no_molecules,
                                    double precision,
                                    double beta_bias);
@@ -108,6 +108,17 @@ void* setupTotalProbFixedEnvelope(void* iso,
                               bool optimize,
                               bool get_confs);
 
+void* setupStochasticFixedEnvelope(void* iso,
+                              size_t no_molecules,
+                              double precision,
+                              double beta_bias,
+                              bool get_confs);
+
+void* setupBinnedFixedEnvelope(void* iso,
+                    double target_total_prob,
+                    double bin_width,
+                    double bin_middle);
+
 void freeReleasedArray(void* array);
 
 void* setupFixedEnvelope(double* masses, double* probs, size_t size, bool mass_sorted, bool prob_sorted, double total_prob);
@@ -116,7 +127,7 @@ void deleteFixedEnvelope(void* tabulator, bool releaseEverything);
 const double* massesFixedEnvelope(void* tabulator);
 const double* probsFixedEnvelope(void* tabulator);
 const int*    confsFixedEnvelope(void* tabulator);
-int confs_noFixedEnvelope(void* tabulator);
+size_t confs_noFixedEnvelope(void* tabulator);
 
 double empiricAverageMass(void* tabulator);
 double empiricVariance(void* tabulator);
