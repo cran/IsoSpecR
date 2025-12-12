@@ -16,6 +16,7 @@
 
 #include "fixedEnvelopes.h"
 #include <limits>
+#include <cassert>
 #include "isoMath.h"
 
 namespace IsoSpec
@@ -24,7 +25,7 @@ namespace IsoSpec
 FixedEnvelope::FixedEnvelope(const FixedEnvelope& other) :
 _masses(array_copy<double>(other._masses, other._confs_no)),
 _probs(array_copy<double>(other._probs, other._confs_no)),
-_confs(array_copy<int>(other._confs, other._confs_no*other.allDim)),
+_confs(array_copy_nptr<int>(other._confs, other._confs_no*other.allDim)),
 _confs_no(other._confs_no),
 allDim(other.allDim),
 sorted_by_mass(other.sorted_by_mass),
@@ -153,6 +154,9 @@ template<typename T> void reorder_array(T* arr, size_t* order, size_t size, bool
 
 void FixedEnvelope::sort_by(double* order)
 {
+    if(_confs_no <= 1)
+        return;
+
     size_t* indices = new size_t[_confs_no];
 
     for(size_t ii = 0; ii < _confs_no; ii++)
@@ -168,16 +172,17 @@ void FixedEnvelope::sort_by(double* order)
     delete[] indices;
 
     reorder_array(_masses, inverse, _confs_no);
-    reorder_array(_probs,  inverse, _confs_no);
+    reorder_array(_probs,  inverse, _confs_no, _confs == nullptr);
     if(_confs != nullptr)
     {
         int* swapspace = new int[allDim];
         for(size_t ii = 0; ii < _confs_no; ii++)
-            while(order[ii] != ii)
+            while(inverse[ii] != ii)
             {
                 memcpy(swapspace, &_confs[ii*allDim], allDimSizeofInt);
                 memcpy(&_confs[ii*allDim], &_confs[inverse[ii]*allDim], allDimSizeofInt);
                 memcpy(&_confs[inverse[ii]*allDim], swapspace, allDimSizeofInt);
+                std::swap(inverse[inverse[ii]], inverse[ii]);
             }
         delete[] swapspace;
     }
@@ -211,6 +216,52 @@ void FixedEnvelope::normalize()
         scale(1.0/tp);
         total_prob = 1.0;
     }
+}
+
+void FixedEnvelope::shift_mass(double value)
+{
+    for(size_t ii = 0; ii < _confs_no; ii++)
+        _masses[ii] += value;
+}
+
+void FixedEnvelope::resample(size_t samples, double beta_bias)
+{
+    if(_confs_no == 0)
+        throw std::logic_error("Resample called on an empty spectrum");
+
+    double pprob = 0.0;
+    double cprob = 0.0;
+    size_t pidx = -1; // Overflows - but it doesn't matter.
+
+    _probs[_confs_no-1] = (std::numeric_limits<double>::max)();
+
+    while(samples > 0)
+    {
+        pprob += _probs[++pidx];
+        _probs[pidx] = 0.0;
+        double covered_part = (pprob - cprob) / (1.0 - cprob);
+        while(samples * covered_part < beta_bias && samples > 0)
+        {
+            cprob += rdvariate_beta_1_b(samples) * (1.0 - cprob);
+            while(pprob < cprob)
+            {
+                pprob += _probs[++pidx];
+                _probs[pidx] = 0.0;
+            }
+            _probs[pidx] += 1.0;
+            samples--;
+            covered_part = (pprob - cprob) / (1.0 - cprob);
+        }
+        if(samples <= 0)
+                break;
+        size_t nrtaken = rdvariate_binom(samples, covered_part);
+        _probs[pidx] += static_cast<double>(nrtaken);
+        samples -= nrtaken;
+        cprob = pprob;
+    }
+
+    pidx++;
+    memset(_probs + pidx, 0, sizeof(double)*(_confs_no - pidx));
 }
 
 FixedEnvelope FixedEnvelope::LinearCombination(const std::vector<const FixedEnvelope*>& spectra, const std::vector<double>& intensities)
@@ -361,6 +412,394 @@ double FixedEnvelope::OrientedWassersteinDistance(FixedEnvelope& other)
     return ret;
 }
 
+double FixedEnvelope::AbyssalWassersteinDistance(FixedEnvelope& other, double abyss_depth, double other_scale)
+{
+    sort_by_mass();
+    other.sort_by_mass();
+
+    std::vector<std::pair<double, double>> carried;
+
+    size_t idx_this = 0;
+    size_t idx_other = 0;
+
+    //std::cout << "AAA" << std::endl;
+
+    auto finished = [&]() -> bool { return idx_this >= _confs_no && idx_other >= other._confs_no; };
+    auto next = [&]() -> std::pair<double, double> {
+                            if(idx_this >= _confs_no || (idx_other < other._confs_no && _masses[idx_this] > other._masses[idx_other]))
+                            {
+                                std::pair<double, double> res = std::pair<double, double>(other._masses[idx_other], other._probs[idx_other]*other_scale);
+                                idx_other++;
+                                return res;
+                            }
+                            else
+                            {
+                                std::pair<double, double> res = std::pair<double, double>(_masses[idx_this], -_probs[idx_this]);
+                                idx_this++;
+                                return res;
+                            }
+                        };
+    double accd = 0.0;
+    double condemned = 0.0;
+
+    while(!finished())
+    {
+        auto pair = next();
+        double m = pair.first;
+        double p = pair.second;
+        if(!carried.empty() && carried[0].second * p > 0.0)
+        {
+            carried.emplace_back(m, p);
+            continue;
+        }
+
+        while(!carried.empty())
+        {
+            double cm = carried.back().first;
+            double cp = carried.back().second;
+            if(m - cm >= abyss_depth)
+            {
+                for(auto it = carried.cbegin(); it != carried.cend(); it++)
+                    condemned += fabs(it->second);
+                carried.clear();
+                break;
+            }
+            if((cp+p)*p > 0.0)
+            {
+                accd += fabs((m-cm)*cp);
+                p += cp;
+                carried.pop_back();
+            }
+            else
+            {
+                accd += fabs((m-cm)*p);
+                cp += p;
+                p = 0.0;
+                break;
+            }
+        }
+        if(p != 0.0)
+            carried.emplace_back(m, p);
+        //std::cout << m << " " << p << std::endl;
+    }
+
+    for(auto it = carried.cbegin(); it != carried.cend(); it++)
+        condemned += fabs(it->second);
+
+    return accd + condemned * abyss_depth * 0.5;
+}
+
+#if 0
+double FixedEnvelope::ScaledAbyssalWassersteinDistance(FixedEnvelope * const * others, double abyss_depth, const double* other_scales, const size_t N)
+{
+    sort_by_mass();
+
+    std::priority_queue<std::pair<double, size_t>> PQ;
+    std::unique_ptr<size_t[]> indices = std::make_unique<size_t[]>(N);
+    memset(indices.get(), 0, sizeof(size_t)*N);
+
+    for(size_t ii=0; ii<N; ii++)
+    {
+        others[ii]->sort_by_mass();
+        if(others[ii]->_confs_no > 0)
+            PQ.emplace_back({others._probs[0], ii});
+    }
+
+
+
+
+    std::vector<std::pair<double, double>> carried;
+
+    size_t idx_this = 0;
+    size_t idx_other = 0;
+
+    //std::cout << "AAA" << std::endl;
+
+    auto finished = [&]() -> bool { return idx_this >= _confs_no && PQ.empty(); };
+    auto next = [&]() -> std::tuple<double, double, size_t> {
+                            if(idx_this >= _confs_no || (idx_other < other._confs_no && _masses[idx_this] > other._masses[idx_other]))
+                            {
+                                std::pair<double, double> res = std::pair<double, double>(other._masses[idx_other], other._probs[idx_other]*other_scale);
+                                idx_other++;
+                                return res;
+                            }
+                            else
+                            {
+                                std::pair<double, double> res = std::pair<double, double>(_masses[idx_this], -_probs[idx_this]);
+                                idx_this++;
+                                return res;
+                            }
+                        };
+    double accd = 0.0;
+    double condemned = 0.0;
+
+    while(!finished())
+    {
+        auto [m, p] = next();
+        if(!carried.empty() && carried[0].second * p > 0.0)
+        {
+            carried.emplace_back(m, p);
+            continue;
+        }
+
+        while(!carried.empty())
+        {
+            auto& [cm, cp] = carried.back();
+            if(m - cm >= abyss_depth)
+            {
+                for(auto it = carried.cbegin(); it != carried.cend(); it++)
+                    condemned += fabs(it->second);
+                carried.clear();
+                break;
+            }
+            if((cp+p)*p > 0.0)
+            {
+                accd += fabs((m-cm)*cp);
+                p += cp;
+                carried.pop_back();
+            }
+            else
+            {
+                accd += fabs((m-cm)*p);
+                cp += p;
+                p = 0.0;
+                break;
+            }
+        }
+        if(p != 0.0)
+            carried.emplace_back(m, p);
+        //std::cout << m << " " << p << std::endl;
+    }
+
+    for(auto it = carried.cbegin(); it != carried.cend(); it++)
+        condemned += fabs(it->second);
+
+    return accd + condemned * abyss_depth * 0.5;
+}
+
+#endif
+
+#if 0
+double AbyssalWassersteinDistanceGrad(FixedEnvelope* const* envelopes, const double* scales, double* ret_gradient, size_t N, double abyss_depth_exp, double abyss_depth_the)
+{
+return 0.0;
+    std::unique_ptr<size_t[]> env_idx = std::make_unique<size_t[]>(N+1);
+    memset(env_idx.get(), 0, (N+1)*sizeof(size_t));
+    memset(ret_gradient, 0, (N+1)*sizeof(double));
+
+    auto pq_cmp = [](std::pair<double, size_t>& p1, std::pair<double, size_t>& p2) { return p1.first > p2.first; };
+    std::priority_queue<std::pair<double, size_t>, std::vector<std::pair<double, size_t>>, decltype(pq_cmp)> PQ(pq_cmp);
+
+    for(size_t ii=0; ii<=N; ii++)
+    {
+        envelopes[ii]->sort_by_mass();
+        if(envelopes[ii]->_confs_no > 0)
+        {
+            std::cout << "Initial push: " << envelopes[ii]->_masses[0] << " " << ii << '\n';
+            PQ.push({envelopes[ii]->_masses[0], ii});
+        }
+    }
+
+    std::vector<std::tuple<double, double, size_t>> carried;
+
+    auto next = [&]() -> std::tuple<double, double, size_t> {
+                            auto [mass, eidx] = PQ.top();
+                            double prob = envelopes[eidx]->_probs[env_idx[eidx]];
+                            PQ.pop();
+                            if(eidx == 0)
+                                prob = -prob;
+                            else
+                                prob = prob * scales[eidx];
+                            std::cout << "Next: " << mass << " " << prob << " " << eidx << '\n';
+                            env_idx[eidx]++;
+                            if(env_idx[eidx] < envelopes[eidx]->_confs_no)
+                                PQ.push({envelopes[eidx]->_masses[env_idx[eidx]], eidx});
+
+                            return {mass, prob, eidx};
+                        };
+    double accd = 0.0;
+    double condemned = 0.0;
+    //double flow;
+    const double max_flow_dist = abyss_depth_exp + abyss_depth_the;
+    max_flow_dist *= 2.0;
+
+    while(!PQ.empty())
+    {
+        auto [m, p, eidx] = next();
+        if(!carried.empty() && std::get<1>(carried[0]) * p > 0.0)
+        {
+            carried.emplace_back(m, p, eidx);
+            continue;
+        }
+
+        while(!carried.empty())
+        {
+            auto& [cm, cp, ceidx] = carried.back();
+            if(m - cm >= max_flow_dist)
+            {
+                for(auto it = carried.cbegin(); it != carried.cend(); it++)
+                    condemned += fabs(std::get<1>(*it));
+                carried.clear();
+                break;
+            }
+            std::cout << "accing\n";
+            if((cp+p)*p > 0.0)
+            {
+                accd += fabs((m-cm)*cp);
+                p += cp;
+                carried.pop_back();
+                std::cout << "cprob:" << cp << '\n';
+            }
+            else
+            {
+                accd += fabs((m-cm)*p);
+                cp += p;
+                std::cout << "prob:" << p << '\n';
+                p = 0.0;
+                break;
+            }
+        }
+        if(p != 0.0)
+            carried.emplace_back(m, p, eidx);
+        //std::cout << m << " " << p << std::endl;
+    }
+
+    for(auto it = carried.cbegin(); it != carried.cend(); it++)
+        condemned += fabs(std::get<1>(*it));
+
+    std::cout << "ISO:" << accd << " " << condemned << '\n';
+    return accd + condemned * max_flow_dist * 0.5;
+    while(!PQ.empty())
+    {
+        auto [m, p, eidx] = next();
+        if(!carried.empty() && (std::get<1>(carried[0]) * p > 0.0))
+        {
+            carried.emplace_back(m, p, eidx);
+            continue;
+        }
+
+        while(!carried.empty())
+        {
+            auto& [cm, cp, ceidx] = carried.back();
+            if(m - cm >= max_flow_dist)
+            {
+                for(auto it = carried.cbegin(); it != carried.cend(); it++)
+                {
+                    flow = fabs(std::get<1>(*it));
+                    const size_t target_idx = std::get<2>(*it);
+                    flow *= target_idx == 0 ? abyss_depth_exp : abyss_depth_the;
+                    ret_gradient[target_idx] += flow;
+                    condemned += flow;
+                    std::cout << "condemnin': " << m << " " << p << " " << eidx << " | " << cm << " " << cp << " " << ceidx << '\n';
+                }
+                carried.clear();
+                break;
+            }
+            if((cp+p)*p > 0.0)
+            {
+                flow = fabs((m-cm)*cp);
+                accd += flow;
+                p += cp;
+                ret_gradient[ceidx] += flow;
+                carried.pop_back();
+            }
+            else
+            {
+                flow = fabs((m-cm)*p);
+                accd += flow;
+                cp += p;
+                ret_gradient[eidx] += flow;
+                p = 0.0;
+                break;
+            }
+        }
+        if(p != 0.0)
+            carried.emplace_back(m, p, eidx);
+        //std::cout << m << " " << p << std::endl;
+    }
+
+    for(auto it = carried.cbegin(); it != carried.cend(); it++)
+        condemned += fabs(std::get<1>(*it));
+
+
+    return accd + condemned * (abyss_depth_exp + abyss_depth_the) * 0.5;
+}
+#endif
+
+
+std::tuple<double, double, double> FixedEnvelope::WassersteinMatch(FixedEnvelope& other, double flow_distance, double other_scale)
+{
+    if(_confs_no == 0)
+        return {0.0, other.get_total_prob() * other_scale, 0.0};
+
+    double unmatched1 = 0.0;
+    double unmatched2 = 0.0;
+    double massflow = 0.0;
+
+    sort_by_mass();
+    other.sort_by_mass();
+
+    size_t idx_this = 0;
+    size_t idx_other = 0;
+    double used_prob_this = 0.0;
+    double used_prob_other = 0.0;
+
+    while(idx_this < _confs_no && idx_other < other._confs_no)
+    {
+        bool moved = true;
+        while(moved && idx_this < _confs_no && idx_other < other._confs_no)
+        {
+            moved = false;
+            if(_masses[idx_this] < other._masses[idx_other] - flow_distance)
+            {
+                unmatched1 += _probs[idx_this] - used_prob_this;
+                used_prob_this = 0.0;
+                idx_this++;
+                moved = true;
+            }
+            if(other._masses[idx_other] < _masses[idx_this] - flow_distance)
+            {
+                unmatched2 += other._probs[idx_other]*other_scale - used_prob_other;
+                used_prob_other = 0.0;
+                idx_other++;
+                moved = true;
+            }
+        }
+        if(idx_this < _confs_no && idx_other < other._confs_no)
+        {
+            assert(_probs[idx_this] - used_prob_this >= 0.0);
+            assert(other._probs[idx_other]*other_scale - used_prob_other >= 0.0);
+
+            if(_probs[idx_this] - used_prob_this < other._probs[idx_other]*other_scale - used_prob_other)
+            {
+                massflow += _probs[idx_this] - used_prob_this;
+                used_prob_other += _probs[idx_this] - used_prob_this;
+                assert(used_prob_other >= 0.0);
+                used_prob_this = 0.0;
+                idx_this++;
+            }
+            else
+            {
+                massflow += other._probs[idx_other]*other_scale - used_prob_other;
+                used_prob_this += other._probs[idx_other]*other_scale - used_prob_other;
+                assert(used_prob_this >= 0.0);
+                used_prob_other = 0.0;
+                idx_other++;
+            }
+        }
+    }
+
+    unmatched1 -= used_prob_this;
+    unmatched2 -= used_prob_other;
+
+    for(; idx_this < _confs_no; idx_this++)
+        unmatched1 += _probs[idx_this];
+    for(; idx_other < other._confs_no; idx_other++)
+        unmatched2 += other._probs[idx_other]*other_scale;
+
+    return {unmatched1, unmatched2, massflow};
+}
+
 FixedEnvelope FixedEnvelope::bin(double bin_width, double middle)
 {
     sort_by_mass();
@@ -371,6 +810,25 @@ FixedEnvelope FixedEnvelope::bin(double bin_width, double middle)
         return ret;
 
     ret.reallocate_memory<false>(ISOSPEC_INIT_TABLE_SIZE);
+
+    if(bin_width == 0)
+    {
+        double curr_mass = _masses[0];
+        double accd_prob = _probs[0];
+        for(size_t ii = 1; ii<_confs_no; ii++)
+        {
+            if(curr_mass != _masses[ii])
+            {
+                ret.store_conf(curr_mass, accd_prob);
+                curr_mass = _masses[ii];
+                accd_prob = _probs[ii];
+            }
+            else
+                accd_prob += _probs[ii];
+        }
+        ret.store_conf(curr_mass, accd_prob);
+        return ret;
+    }
 
     size_t ii = 0;
 

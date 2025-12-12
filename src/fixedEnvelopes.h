@@ -32,6 +32,11 @@
 namespace IsoSpec
 {
 
+class FixedEnvelope;
+
+double AbyssalWassersteinDistanceGrad(FixedEnvelope* const* envelopes, const double* scales, double* ret_gradient, size_t N, double abyss_depth_exp, double abyss_depth_the);
+
+
 class ISOSPEC_EXPORT_SYMBOL FixedEnvelope {
  protected:
     double* _masses;
@@ -84,9 +89,10 @@ class ISOSPEC_EXPORT_SYMBOL FixedEnvelope {
     inline const double*   probs()  const { return _probs; }
     inline const int*      confs()  const { return _confs; }
 
-    inline double*   release_masses()   { double* ret = _masses; _masses = nullptr; return ret; }
-    inline double*   release_probs()    { double* ret = _probs;  _probs  = nullptr; return ret; }
-    inline int*      release_confs()    { int*    ret = _confs;  _confs  = nullptr; return ret; }
+    inline double*   release_masses()     { double* ret = _masses; _masses = nullptr; return ret; }
+    inline double*   release_probs()      { double* ret = _probs;  _probs  = nullptr; return ret; }
+    inline int*      release_confs()      { int*    ret = _confs;  _confs  = nullptr; return ret; }
+    inline void      release_everything() { _confs = nullptr; _probs = _masses = nullptr; }
 
 
     inline double     mass(size_t i)  const { return _masses[i]; }
@@ -99,6 +105,8 @@ class ISOSPEC_EXPORT_SYMBOL FixedEnvelope {
     double get_total_prob();
     void scale(double factor);
     void normalize();
+    void shift_mass(double shift);
+    void resample(size_t ionic_current, double beta_bias = 1.0);
 
     double empiric_average_mass();
     double empiric_variance();
@@ -106,6 +114,9 @@ class ISOSPEC_EXPORT_SYMBOL FixedEnvelope {
 
     double WassersteinDistance(FixedEnvelope& other);
     double OrientedWassersteinDistance(FixedEnvelope& other);
+    double AbyssalWassersteinDistance(FixedEnvelope& other, double abyss_depth, double other_scale = 1.0);
+    std::tuple<double, double, double> WassersteinMatch(FixedEnvelope& other, double flow_distance, double other_scale = 1.0);
+
 
     static FixedEnvelope LinearCombination(const std::vector<const FixedEnvelope*>& spectra, const std::vector<double>& intensities);
     static FixedEnvelope LinearCombination(const FixedEnvelope* const * spectra, const double* intensities, size_t size);
@@ -226,6 +237,8 @@ class ISOSPEC_EXPORT_SYMBOL FixedEnvelope {
     {
         return Binned(Iso(iso, false), target_total_prob, bin_width, bin_middle);
     }
+
+    friend double AbyssalWassersteinDistanceGrad(FixedEnvelope* const* envelopes, const double* scales, double* ret_gradient, size_t N, double abyss_depth_exp, double abyss_depth_the);
 };
 
 }  // namespace IsoSpec

@@ -277,6 +277,12 @@ void deleteFixedEnvelope(void* t, bool release_everything)
     delete tt;
 }
 
+void* copyFixedEnvelope(void* other)
+{
+    FixedEnvelope* ret = new FixedEnvelope(*reinterpret_cast<FixedEnvelope*>(other));
+    return reinterpret_cast<void*>(ret);
+}
+
 const double* massesFixedEnvelope(void* tabulator)
 {
     return reinterpret_cast<FixedEnvelope*>(tabulator)->release_masses();
@@ -336,6 +342,27 @@ double orientedWassersteinDistance(void* tabulator1, void* tabulator2)
     }
 }
 
+double abyssalWassersteinDistance(void* tabulator1, void* tabulator2, double abyss_depth, double other_scale)
+{
+    return reinterpret_cast<FixedEnvelope*>(tabulator1)->AbyssalWassersteinDistance(*reinterpret_cast<FixedEnvelope*>(tabulator2), abyss_depth, other_scale);
+}
+
+#if 0
+double abyssalWassersteinDistanceGrad(void* const* envelopes, const double* scales, double* ret_gradient, size_t N, double abyss_depth_exp, double abyss_depth_the)
+{
+    return AbyssalWassersteinDistanceGrad(reinterpret_cast<FixedEnvelope* const*>(envelopes), scales, ret_gradient, N, abyss_depth_exp, abyss_depth_the);
+}
+#endif
+
+struct ws_match_res wassersteinMatch(void* tabulator1, void* tabulator2, double flow_dist, double other_scale)
+{
+    struct ws_match_res res;
+    auto tuple = reinterpret_cast<FixedEnvelope*>(tabulator1)->WassersteinMatch(*reinterpret_cast<FixedEnvelope*>(tabulator2), flow_dist, other_scale);
+    res.res1 = std::get<0>(tuple);
+    res.res2 = std::get<1>(tuple);
+    res.flow = std::get<2>(tuple);
+    return res;
+}
 
 void* addEnvelopes(void* tabulator1, void* tabulator2)
 {
@@ -364,6 +391,17 @@ void normalizeEnvelope(void* envelope)
     reinterpret_cast<FixedEnvelope*>(envelope)->normalize();
 }
 
+void shiftMassEnvelope(void* envelope, double d_mass)
+{
+    reinterpret_cast<FixedEnvelope*>(envelope)->shift_mass(d_mass);
+}
+
+void resampleEnvelope(void* envelope, size_t ionic_current, double beta_bias)
+{
+    reinterpret_cast<FixedEnvelope*>(envelope)->resample(ionic_current, beta_bias);
+}
+
+
 void* binnedEnvelope(void* envelope, double width, double middle)
 {
     //  Again, counting on copy elision...
@@ -389,6 +427,28 @@ void sortEnvelopeByProb(void* envelope)
 void freeReleasedArray(void* array)
 {
     free(array);
+}
+
+void array_add(double* array, size_t N, double what)
+{
+    for(size_t ii = 0; ii < N; ii++)
+        array[ii] += what;
+}
+
+void array_mul(double* array, size_t N, double what)
+{
+    for(size_t ii = 0; ii < N; ii++)
+        array[ii] *= what;
+}
+
+void array_fma(double* array, size_t N, double mul, double add)
+{
+    for(size_t ii = 0; ii < N; ii++)
+#if defined(FP_FAST_FMA)
+        array[ii] = std::fma(array[ii], mul, add);
+#else
+        array[ii] += (array[ii] * mul) + add;
+#endif
 }
 
 void parse_fasta_c(const char* fasta, int atomCounts[6])

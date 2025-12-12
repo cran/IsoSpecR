@@ -2,10 +2,19 @@ Encoding: UTF-8
 Package: IsoSpecR
 Type: Package
 Title: The IsoSpec Algorithm
-Version: 2.1.3
-Date: 2020-10-29
-Author: Mateusz Krzysztof Lacki and Michal Startek
-Maintainer: Matteo Lacki <matteo.lacki@gmail.com>
+Version: 2.3.3
+Date: 2025-12-07
+Authors@R: c(person(given = c("Mateusz", "Krzysztof"),
+                      family = "Łącki",
+                      role = c("cre", "aut"),
+                      email = "matteo.lacki@gmail.com",
+                      comment = c(ORCID = "0000-0001-7415-4748")),
+               person(given = c("Michał", "Piotr"),
+                      family = "Startek",
+                      role = "aut",
+                      comment = c(ORCID = "0000-0001-5227-3447"))
+               )
+Maintainer: Mateusz Krzysztof Łącki <matteo.lacki@gmail.com>
 Description: IsoSpec is a fine structure calculator used for obtaining the most
     probable masses of a chemical compound given the frequencies of the composing
     isotopes and their masses. It finds the smallest set of isotopologues with
@@ -24,8 +33,11 @@ Suggests: testthat
 LazyData: no
 LinkingTo: Rcpp
 NeedsCompilation: yes
-SystemRequirements: C++14
-RoxygenNote: 6.1.1
-Packaged: 2020-10-30 19:22:56 UTC; mist
+RoxygenNote: 7.1.1
+Packaged: 2025-12-11 15:08:28 UTC; mist
+Author: Mateusz Krzysztof Łącki [cre, aut] (ORCID:
+    <https://orcid.org/0000-0001-7415-4748>),
+  Michał Piotr Startek [aut] (ORCID:
+    <https://orcid.org/0000-0001-5227-3447>)
 Repository: CRAN
-Date/Publication: 2020-10-31 00:40:06 UTC
+Date/Publication: 2025-12-12 09:10:27 UTC

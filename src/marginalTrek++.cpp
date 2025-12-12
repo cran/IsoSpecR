@@ -265,17 +265,23 @@ double Marginal::getHeaviestConfMass() const
     return ret_mass*atomCnt;
 }
 
-double Marginal::getMonoisotopicConfMass() const
+size_t Marginal::getMonoisotopicAtomIndex() const
 {
     double found_prob = -std::numeric_limits<double>::infinity();
-    double found_mass = 0.0;  // to avoid uninitialized var warning
+    size_t found_idx = 0;
     for(unsigned int ii = 0; ii < isotopeNo; ii++)
         if( found_prob < atom_lProbs[ii] )
         {
             found_prob = atom_lProbs[ii];
-            found_mass = atom_masses[ii];
+            found_idx = ii;
         }
-    return found_mass*atomCnt;
+    return found_idx;
+}
+
+double Marginal::getMonoisotopicConfMass() const
+{
+    size_t idx = getMonoisotopicAtomIndex();
+    return atom_masses[idx]*atomCnt;
 }
 
 double Marginal::getAtomAverageMass() const
@@ -329,13 +335,19 @@ Marginal(std::move(m)),
 current_count(0),
 orderMarginal(atom_lProbs, isotopeNo),
 pq(),
-allocator(isotopeNo, tabSize)
+allocator(isotopeNo, tabSize),
+min_lprob(*std::min_element(atom_lProbs, atom_lProbs+isotopeNo))
 {
     int* initialConf = allocator.makeCopy(mode_conf);
 
-    pq.push({unnormalized_logProb(mode_conf), initialConf});
+    pq.push({mode_lprob, initialConf});
 
     current_count = 0;
+
+    fringe.resize_and_wipe(1);
+
+    current_bucket = 0;
+    initialized_until = 1;
 
     add_next_conf();
 }
@@ -347,9 +359,25 @@ bool MarginalTrek::add_next_conf()
     Add next configuration.
     If visited all, return false.
     */
-    if(pq.size() < 1) return false;
+    if(pq.empty())
+    {
+        current_bucket++;
+        while(current_bucket < initialized_until && fringe[current_bucket].empty())
+        {
+//            std::cout << "EMPTY bucket, id: " << current_bucket << std::endl;
+            current_bucket++;
+        }
 
-    double logprob = pq.top().first + loggamma_nominator;
+//        std::cout << "Entering bucket, size: " << fringe[current_bucket].size() << std::endl;
+
+        if(current_bucket >= initialized_until)
+            return false;
+
+    //    std::cout << "Fringe size at pop: " << fringe[current_bucket].size() << std::endl;
+        pq = std::priority_queue<ProbAndConfPtr, pod_vector<ProbAndConfPtr> >(std::less<ProbAndConfPtr>(), pod_vector<ProbAndConfPtr>(std::move(fringe[current_bucket])));
+    };
+
+    double logprob = pq.top().first;
     Conf topConf = pq.top().second;
 
     pq.pop();
@@ -379,9 +407,22 @@ bool MarginalTrek::add_next_conf()
                     ++acceptedCandidate[i];
                     --acceptedCandidate[j];
 
-                    double new_prob = unnormalized_logProb(acceptedCandidate);
+                    double new_prob = logProb(acceptedCandidate);
+                    size_t bucket_nr = bucket_no(new_prob);
 
-                    pq.push({new_prob, acceptedCandidate});
+                    if(bucket_nr >= initialized_until)
+                    {
+                    //    std::cout << "Extending to: " << bucket_nr << std::endl;
+                        initialized_until = bucket_nr+1;
+                        fringe.resize_and_wipe(initialized_until);
+                    }
+
+                    ISOSPEC_IMPOSSIBLE(bucket_nr < current_bucket);
+                    if(bucket_nr == current_bucket)
+                        pq.push({new_prob, acceptedCandidate});
+                    else
+                        fringe[bucket_nr].push_back({new_prob, acceptedCandidate});
+
                 }
 
                 if( topConf[i] > mode_conf[i] )
@@ -398,6 +439,9 @@ bool MarginalTrek::add_next_conf()
 
 MarginalTrek::~MarginalTrek()
 {
+    const size_t fringe_size = fringe.size();
+    for(size_t ii = 0; ii < fringe_size; ii++)
+        fringe[ii].clear();
 }
 
 
@@ -656,5 +700,50 @@ double LayeredMarginal::get_max_mass() const
             ret = *it;
     return ret;
 }
+
+/* ===============================================================   */
+
+template<bool add_guards>
+SingleAtomMarginal<add_guards>::SingleAtomMarginal(Marginal&& m, int, int)
+: Marginal(std::move(m)), current_threshold(1.0), extended_to_idx(0)
+{
+    original_indexes.resize(isotopeNo);
+    for(size_t ii = 0; ii < isotopeNo; ++ii)
+        original_indexes[ii] = ii;
+
+    std::sort(original_indexes.begin(), original_indexes.end(), [&](int a, int b) {
+        return atom_lProbs[a] > atom_lProbs[b];
+    });
+
+
+    masses.reserve(isotopeNo);
+    probs.reserve(isotopeNo);
+
+    if constexpr (add_guards)
+    {
+        lProbs.reserve(isotopeNo+2);
+        lProbs.push_back(std::numeric_limits<double>::infinity());
+    }
+    else
+        lProbs.reserve(isotopeNo);
+
+    for(size_t idx : original_indexes)
+    {
+        lProbs.push_back(atom_lProbs[idx]);
+        probs.push_back(exp(lProbs.back()));
+        masses.push_back(atom_masses[idx]);
+    }
+
+    if constexpr (add_guards)
+   {
+        lProbs.push_back(-std::numeric_limits<double>::infinity());
+        guarded_lProbs = lProbs.data()+1;
+    }
+    else
+        guarded_lProbs = lProbs.data();
+}
+
+template class SingleAtomMarginal<true>;
+template SingleAtomMarginal<false>::SingleAtomMarginal(IsoSpec::Marginal&&, int, int);
 
 }  // namespace IsoSpec
